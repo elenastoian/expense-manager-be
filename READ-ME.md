@@ -15,7 +15,6 @@ The main purpose of this project is to demonstrate modern backend development pr
 ## Authentication & Authorization
 - JWT-based authentication
 - Refresh token mechanism
-- Role-based access control (Admin/User)
 - Secure API endpoints with Spring Security
 
 ---
