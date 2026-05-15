@@ -1,9 +1,6 @@
 package com.elenastoian.expense.manager.identity.infrastructure.rest;
 
-import com.elenastoian.expense.manager.identity.application.dto.AuthenticationRequest;
-import com.elenastoian.expense.manager.identity.application.dto.RegisterRequest;
-import com.elenastoian.expense.manager.identity.application.dto.AuthenticationResponse;
-import com.elenastoian.expense.manager.identity.application.dto.TokenConfirmationResponse;
+import com.elenastoian.expense.manager.identity.application.dto.*;
 import com.elenastoian.expense.manager.identity.application.service.AuthenticationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +24,8 @@ public class AuthenticationController {
         return authenticationService.authenticate(request);
     }
 
-    @GetMapping(path = "/confirm")
-    public ResponseEntity<TokenConfirmationResponse> confirm(@RequestParam("token") String token){
-        return authenticationService.confirmToken(token);
+    @PostMapping(path = "/confirm")
+    public ResponseEntity<TokenConfirmationResponse> confirm(@RequestBody @Valid TokenConfirmationRequest tokenConfirmationRequest){
+        return authenticationService.confirmToken(tokenConfirmationRequest);
     }
 }

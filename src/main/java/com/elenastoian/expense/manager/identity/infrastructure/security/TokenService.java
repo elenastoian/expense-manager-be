@@ -38,7 +38,7 @@ public class TokenService {
      * Called before issuing a new token to prevent session accumulation.
      */
     public void revokeAllUserTokens(User user) {
-        List<Token> validTokens = tokenRepository.findAllValidTokensByAppUser(user.getId());
+        List<Token> validTokens = tokenRepository.findAllValidTokensByUser(user.getId());
         if (validTokens.isEmpty()) return;
         validTokens.forEach(t -> {
             t.setExpired(true);
