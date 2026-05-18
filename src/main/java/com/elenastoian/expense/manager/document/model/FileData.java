@@ -1,0 +1,25 @@
+package com.elenastoian.expense.manager.document.model;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Getter
+@Setter
+public class FileData {
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    private Long id;
+    String vendorName;
+    String invoiceNumber;
+    Float amount;
+    String currency;
+    LocalDateTime invoiceDate;
+
+    @ManyToOne
+    @JoinColumn(name = "file_id")
+    private File file;
+}
