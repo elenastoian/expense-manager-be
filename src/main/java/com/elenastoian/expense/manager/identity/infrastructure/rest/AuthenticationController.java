@@ -28,4 +28,9 @@ public class AuthenticationController {
     public ResponseEntity<TokenConfirmationResponse> confirm(@RequestBody @Valid TokenConfirmationRequest tokenConfirmationRequest){
         return authenticationService.confirmToken(tokenConfirmationRequest);
     }
+
+    @PostMapping(path = "/refresh")
+    public ResponseEntity<RefreshTokenResponse> refresh(@RequestBody @Valid RefreshTokenRequest request) {
+        return authenticationService.refreshToken(request);
+    }
 }

@@ -1,12 +1,11 @@
 package com.elenastoian.expense.manager.identity.infrastructure.security;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
-
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
@@ -23,24 +22,39 @@ public class JwtService {
     @Value("${jwt.expiration-ms}")
     private long jwtExpirationMs;
 
+    @Value("${jwt.refresh-expiration-ms}")
+    private long jwtRefreshExpirationMs;
+
     /**
-     * Generates a signed JWT with a unique jti claim embedded.
-     * Returns both the compact token string and the jti so the caller
-     * can persist the jti without needing to parse the token again.
+     * Generates a short-lived, fully STATELESS ACCESS token.
+     * No token ID (jti) claim is needed as it is never checked against a database.
      */
-    public GeneratedToken generateToken(UserDetails userDetails) {
-        String tokenId = UUID.randomUUID().toString();
-        String jwt = Jwts.builder()
-                .id(tokenId)
+    public String generateAccessToken(UserDetails userDetails) {
+        return Jwts.builder()
                 .subject(userDetails.getUsername())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
                 .signWith(getSignInKey())
                 .compact();
+    }
+
+    /**
+     * Generates a long-lived REFRESH token embedded with a unique ID (jti claim).
+     * This ID acts as the identifier linked to the stateful table.
+     */
+    public GeneratedToken generateRefreshToken(UserDetails userDetails) {
+        String tokenId = UUID.randomUUID().toString();
+        String jwt = Jwts.builder()
+                .id(tokenId) // Sets the 'jti' claim for database lookup
+                .subject(userDetails.getUsername())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + jwtRefreshExpirationMs))
+                .signWith(getSignInKey())
+                .compact();
         return new GeneratedToken(jwt, tokenId);
     }
 
-    /** Simple value object returned by generateToken. */
+    /** Record to bundle the generated JWT string alongside its unique token ID. */
     public record GeneratedToken(String jwt, String tokenId) {}
 
     public String extractUsername(String token) {
@@ -55,10 +69,6 @@ public class JwtService {
         return resolver.apply(extractAllClaims(token));
     }
 
-    /**
-     * Validates signature, expiry, and username match.
-     * DB-level revocation check is done separately in the filter.
-     */
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
         return username != null

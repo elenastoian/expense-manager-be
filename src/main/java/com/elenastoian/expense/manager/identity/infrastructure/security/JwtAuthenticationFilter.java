@@ -24,7 +24,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
-    private final TokenService tokenService;
 
     @Override
     protected void doFilterInternal(
@@ -40,39 +39,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         final String jwt = authHeader.substring(7);
-
-        // Extract claims — if the token is malformed/tampered, JwtException is thrown
         final String username;
-        final String tokenId;
+
         try {
             username = jwtService.extractUsername(jwt);
-            tokenId  = jwtService.extractTokenId(jwt);
         } catch (JwtException e) {
+            // Token is invalid, expired, or malformed. Reject request.
+            logger.debug("JWT authentication failed: {}", e);
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Only proceed if not already authenticated
-        if (username == null || SecurityContextHolder.getContext().getAuthentication() != null) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+        // If we have a username and the context is empty, set up the security context
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-
-        // 1. Validate signature + expiry against UserDetails
-        // 2. Validate revocation status against DB (by jti — no full JWT in DB)
-        boolean isJwtValid = jwtService.isTokenValid(jwt, userDetails);
-        boolean isNotRevoked = tokenService.findByTokenId(tokenId)
-                .map(t -> !t.isExpired() && !t.isRevoked())
-                .orElse(false);
-
-        if (isJwtValid && isNotRevoked) {
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    userDetails, null, userDetails.getAuthorities()
-            );
-            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(auth);
+            // No DB check here! We only check if the token belongs to the user and hasn't expired.
+            if (jwtService.isTokenValid(jwt, userDetails)) {
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities()
+                );
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
         }
 
         filterChain.doFilter(request, response);

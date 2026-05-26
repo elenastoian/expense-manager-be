@@ -1,23 +1,14 @@
 package com.elenastoian.expense.manager.identity.infrastructure.rest;
 
-import com.elenastoian.expense.manager.identity.application.dto.AuthenticationRequest;
-import com.elenastoian.expense.manager.identity.application.dto.AuthenticationResponse;
-import com.elenastoian.expense.manager.identity.application.dto.RegisterRequest;
-import com.elenastoian.expense.manager.identity.application.dto.TokenConfirmationRequest;
-import com.elenastoian.expense.manager.identity.application.dto.TokenConfirmationResponse;
+import com.elenastoian.expense.manager.identity.application.dto.*;
 import com.elenastoian.expense.manager.identity.application.service.AuthenticationService;
 import com.elenastoian.expense.manager.identity.infrastructure.security.JwtAuthenticationFilter;
 import com.elenastoian.expense.manager.identity.infrastructure.security.JwtService;
-import com.elenastoian.expense.manager.identity.infrastructure.security.TokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -45,8 +36,6 @@ class AuthenticationControllerTest {
     private AuthenticationService authenticationService;
     @MockitoBean
     private JwtService jwtService;
-    @MockitoBean
-    private TokenService tokenService;
     @MockitoBean
     private UserDetailsService userDetailsService;
     @MockitoBean
@@ -165,7 +154,7 @@ class AuthenticationControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new TokenConfirmationRequest("some-token"))))
+                                new JwtTokenConfirmationRequest("some-token"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.validation").value(true));
     }
@@ -179,7 +168,7 @@ class AuthenticationControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new TokenConfirmationRequest("bad-token"))))
+                                new JwtTokenConfirmationRequest("bad-token"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.validation").value(false));
     }

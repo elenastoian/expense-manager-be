@@ -1,19 +1,15 @@
 package com.elenastoian.expense.manager.identity.application.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.Setter;
 
 @Getter
-@Setter
 @AllArgsConstructor
-public class TokenConfirmationRequest {
+public class RefreshTokenRequest {
 
     @NotNull
-    @NotEmpty
     @NotBlank
-    private String token;
+    private String refreshToken;
 }

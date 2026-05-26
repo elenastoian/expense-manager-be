@@ -1,10 +1,12 @@
 package com.elenastoian.expense.manager.identity.application.service;
 
 import com.elenastoian.expense.manager.identity.application.dto.*;
+import com.elenastoian.expense.manager.identity.domain.model.RefreshToken;
 import com.elenastoian.expense.manager.identity.domain.model.User;
 import com.elenastoian.expense.manager.identity.infrastructure.persistance.CustomUserRepository;
 import com.elenastoian.expense.manager.identity.infrastructure.security.JwtService;
-import com.elenastoian.expense.manager.identity.infrastructure.security.TokenService;
+import com.elenastoian.expense.manager.identity.infrastructure.security.RefreshTokenService;
+import io.jsonwebtoken.JwtException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,13 +27,12 @@ public class AuthenticationService {
     private final CustomUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final TokenService tokenService;
+    private final RefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
     private final UserDetailsService userDetailsService;
 
     @Transactional
     public ResponseEntity<AuthenticationResponse> register(@Valid RegisterRequest request) {
-        // Prevent duplicate registrations
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
@@ -39,24 +40,14 @@ public class AuthenticationService {
         User user = User.builder()
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .enabled(true) // todo: set to false when building email confirmation flow
+                .enabled(true)
                 .build();
 
         user = userRepository.save(user);
-
-        // Revoke any stale tokens (shouldn't exist for new user, but defensive)
-        tokenService.revokeAllUserTokens(user);
-
-        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
-        JwtService.GeneratedToken generated = jwtService.generateToken(userDetails);
-        tokenService.saveToken(user, generated.tokenId());
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new AuthenticationResponse(user.getId(), user.getEmail(), generated.jwt()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(issueTokenPair(user));
     }
 
     public ResponseEntity<AuthenticationResponse> authenticate(@Valid AuthenticationRequest request) {
-        // Delegates to DaoAuthenticationProvider — throws AuthenticationException on failure
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
@@ -64,36 +55,84 @@ public class AuthenticationService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
 
-        // Revoke all previous tokens before issuing a new one
-        tokenService.revokeAllUserTokens(user);
-
-        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
-        JwtService.GeneratedToken generated = jwtService.generateToken(userDetails);
-        tokenService.saveToken(user, generated.tokenId());
-
-        return ResponseEntity.ok(new AuthenticationResponse(user.getId(), user.getEmail(), generated.jwt()));
+        return ResponseEntity.ok(issueTokenPair(user));
     }
 
-    public ResponseEntity<TokenConfirmationResponse> confirmToken(@Valid TokenConfirmationRequest token) {
-        // Extract jti and validate against DB
+    /**
+     * Validates the refresh token and issues a new stateless access + stateful refresh pair.
+     * Incorporates Automatic Breach Detection during Refresh Token Rotation (RTR).
+     */
+    @Transactional
+    public ResponseEntity<RefreshTokenResponse> refreshToken(@Valid RefreshTokenRequest request) {
+        String rawRefreshToken = request.getRefreshToken();
+
+        String tokenId;
+        String username;
         try {
-            String tokenId = jwtService.extractTokenId(token.getToken());
-            boolean isValid = tokenService.findByTokenId(tokenId)
-                    .map(t -> !t.isExpired() && !t.isRevoked())
-                    .orElse(false);
+            tokenId  = jwtService.extractTokenId(rawRefreshToken);
+            username = jwtService.extractUsername(rawRefreshToken);
+        } catch (JwtException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token structural claims");
+        }
 
-            // Also verify cryptographic validity
-            String username = jwtService.extractUsername(token.getToken());
-            if (isValid && username != null) {
+        // Database lookup via token ID (jti claim)
+        RefreshToken dbToken = refreshTokenService.findByTokenId(tokenId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
+
+        // BREACH DETECTION: If a refresh token is presented but already marked revoked/expired,
+        // someone has replayed an old token. Immediately kill all active user sessions for protection.
+        if (dbToken.isRevoked() || dbToken.isExpired()) {
+            refreshTokenService.revokeAllUserRefreshTokens(dbToken.getUser());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Security breach: Session compromised. Re-login required.");
+        }
+
+        // Signature and expiration validation
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        if (!jwtService.isTokenValid(rawRefreshToken, userDetails)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token signature invalid or expired");
+        }
+
+        User user = userRepository.findByEmail(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        // Consumption: Revoke the used refresh token immediately
+        refreshTokenService.revokeToken(tokenId);
+
+        // Generation: Issue a brand new stateless access token and stateful refresh token
+        String newAccess = jwtService.generateAccessToken(userDetails);
+        JwtService.GeneratedToken newRefresh = jwtService.generateRefreshToken(userDetails);
+
+        refreshTokenService.saveRefreshToken(user, newRefresh.tokenId());
+
+        return ResponseEntity.ok(new RefreshTokenResponse(newAccess, newRefresh.jwt()));
+    }
+
+    /** Confirms the validity of an access token completely statelessly. */
+    public ResponseEntity<TokenConfirmationResponse> confirmToken(@Valid TokenConfirmationRequest request) {
+        String rawToken = request.getToken();
+        try {
+            String username = jwtService.extractUsername(rawToken);
+            if (username != null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                isValid = jwtService.isTokenValid(token.getToken(), userDetails);
-            } else {
-                isValid = false;
+                boolean isValid = jwtService.isTokenValid(rawToken, userDetails);
+                return ResponseEntity.ok(new TokenConfirmationResponse(isValid));
             }
-
-            return ResponseEntity.ok(new TokenConfirmationResponse(isValid));
+            return ResponseEntity.ok(new TokenConfirmationResponse(false));
         } catch (Exception e) {
             return ResponseEntity.ok(new TokenConfirmationResponse(false));
         }
+    }
+
+    /** Generates a fresh stateless access token string and tracks a stateful refresh token. */
+    private AuthenticationResponse issueTokenPair(User user) {
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
+
+        String access = jwtService.generateAccessToken(userDetails);
+        JwtService.GeneratedToken refresh = jwtService.generateRefreshToken(userDetails);
+
+        // Only save the tracking information of the refresh token to the database
+        refreshTokenService.saveRefreshToken(user, refresh.tokenId());
+
+        return new AuthenticationResponse(user.getId(), user.getEmail(), access);
     }
 }
