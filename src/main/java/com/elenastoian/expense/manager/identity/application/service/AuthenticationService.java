@@ -69,6 +69,7 @@ public class AuthenticationService {
         String tokenId;
         String username;
         try {
+            // extract claims
             tokenId  = jwtService.extractTokenId(rawRefreshToken);
             username = jwtService.extractUsername(rawRefreshToken);
         } catch (JwtException e) {
@@ -79,17 +80,16 @@ public class AuthenticationService {
         RefreshToken dbToken = refreshTokenService.findByTokenId(tokenId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
 
-        // BREACH DETECTION: If a refresh token is presented but already marked revoked/expired,
-        // someone has replayed an old token. Immediately kill all active user sessions for protection.
-        if (dbToken.isRevoked() || dbToken.isExpired()) {
+        // breach detection
+        if (dbToken.isRevoked()) {
             refreshTokenService.revokeAllUserRefreshTokens(dbToken.getUser());
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Security breach: Session compromised. Re-login required.");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Security breach: Session compromised.");
         }
 
-        // Signature and expiration validation
+        // cryptographic validation and expiration check of the refresh token
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         if (!jwtService.isTokenValid(rawRefreshToken, userDetails)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token signature invalid or expired");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token signature invalid or expired.");
         }
 
         User user = userRepository.findByEmail(username)
@@ -133,6 +133,6 @@ public class AuthenticationService {
         // Only save the tracking information of the refresh token to the database
         refreshTokenService.saveRefreshToken(user, refresh.tokenId());
 
-        return new AuthenticationResponse(user.getId(), user.getEmail(), access);
+        return new AuthenticationResponse(user.getId(), user.getEmail(), access, refresh.jwt());
     }
 }

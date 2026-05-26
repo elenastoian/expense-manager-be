@@ -9,5 +9,6 @@ import lombok.Getter;
 public class AuthenticationResponse {
     private Long id;
     private String email;
-    private String token;
+    private String accessToken;
+    private String refreshToken;
 }

@@ -3,6 +3,7 @@ package com.elenastoian.expense.manager.identity.domain.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -37,6 +38,9 @@ public class RefreshToken {
 
     @Column(nullable = false)
     private boolean expired;
+
+    @Column(nullable = false)
+    private LocalDateTime expiresAt;
 
     @Column(nullable = false)
     private boolean used;
