@@ -4,18 +4,16 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
- * A single-use opaque token used to authorise a password reset.
+ * Tracks a single active refresh-token session for a user.
  *
- * Unlike JwtToken, this is not a JWT — it's a random UUID stored in full
- * because it's never transmitted in an Authorization header and has no
- * cryptographic self-validation. The server looks it up by value, checks
- * expiry and the used flag, then deletes it after use.
+ * Only the JWT's jti claim (tokenId) is persisted — the raw token string is
+ * never stored.  The server validates the JWT cryptographically first, then
+ * cross-checks this record to enforce revocation and DB-side expiry.
  */
 @Entity
-@Table(name = "password_reset_token")
+@Table(name = "refresh_token")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -27,11 +25,9 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** The jti claim of the associated JWT — used for lookup and revocation. */
     @Column(nullable = false, unique = true)
-    private UUID token;
-
-    @Column
-    private String tokenId; // jti claim of the associated JWT, used for blacklisting
+    private String tokenId;
 
     @Column(nullable = false)
     private boolean revoked;
@@ -41,9 +37,6 @@ public class RefreshToken {
 
     @Column(nullable = false)
     private LocalDateTime expiresAt;
-
-    @Column(nullable = false)
-    private boolean used;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "app_user_id", nullable = false)

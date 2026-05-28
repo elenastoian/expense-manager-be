@@ -20,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
+
 @Service
 @RequiredArgsConstructor
 public class AuthenticationService {
@@ -47,6 +49,7 @@ public class AuthenticationService {
         return ResponseEntity.status(HttpStatus.CREATED).body(issueTokenPair(user));
     }
 
+    @Transactional
     public ResponseEntity<AuthenticationResponse> authenticate(@Valid AuthenticationRequest request) {
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
@@ -69,7 +72,6 @@ public class AuthenticationService {
         String tokenId;
         String username;
         try {
-            // extract claims
             tokenId  = jwtService.extractTokenId(rawRefreshToken);
             username = jwtService.extractUsername(rawRefreshToken);
         } catch (JwtException e) {
@@ -80,13 +82,19 @@ public class AuthenticationService {
         RefreshToken dbToken = refreshTokenService.findByTokenId(tokenId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
 
-        // breach detection
+        // Breach detection
         if (dbToken.isRevoked()) {
             refreshTokenService.revokeAllUserRefreshTokens(dbToken.getUser());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Security breach: Session compromised.");
         }
 
-        // cryptographic validation and expiration check of the refresh token
+        if (dbToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+            // Mark it expired so it will not be returned by findAllValidTokensByUser.
+            refreshTokenService.revokeToken(tokenId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token has expired.");
+        }
+
+        // Cryptographic validation: verify signature and JWT-level expiry.
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         if (!jwtService.isTokenValid(rawRefreshToken, userDetails)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token signature invalid or expired.");
@@ -101,7 +109,6 @@ public class AuthenticationService {
         // Generation: Issue a brand new stateless access token and stateful refresh token
         String newAccess = jwtService.generateAccessToken(userDetails);
         JwtService.GeneratedToken newRefresh = jwtService.generateRefreshToken(userDetails);
-
         refreshTokenService.saveRefreshToken(user, newRefresh.tokenId());
 
         return ResponseEntity.ok(new RefreshTokenResponse(newAccess, newRefresh.jwt()));
@@ -130,7 +137,6 @@ public class AuthenticationService {
         String access = jwtService.generateAccessToken(userDetails);
         JwtService.GeneratedToken refresh = jwtService.generateRefreshToken(userDetails);
 
-        // Only save the tracking information of the refresh token to the database
         refreshTokenService.saveRefreshToken(user, refresh.tokenId());
 
         return new AuthenticationResponse(user.getId(), user.getEmail(), access, refresh.jwt());

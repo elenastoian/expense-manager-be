@@ -2,18 +2,24 @@ package com.elenastoian.expense.manager.identity.application.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-
 
 @Getter
 @AllArgsConstructor
 public class RegisterRequest {
 
-    @NotBlank(message = "Register's email cannot be blank")
-    @Email(message = "Register's email should be a valid email")
+    @NotBlank(message = "Email cannot be blank")
+    @Email(message = "Email must be a valid address")
     private String email;
 
-    @NotBlank(message = "Register's password cannot be blank")
+    @NotBlank(message = "Password cannot be blank")
+    @Size(min = 8, max = 128, message = "Password must be between 8 and 128 characters")
+    @Pattern(
+            regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^a-zA-Z\\d]).+$",
+            message = "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
+    )
     private String password;
 }
